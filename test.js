@@ -124,7 +124,7 @@ async function login(baseUrl) {
     })
   });
 
-  const json = await res.json().catch(() => null);
+  const json = await res.json().catch(() => -1);
   if (!res.ok || json?.success !== 200) {
     throw new Error("登录失败");
   }
