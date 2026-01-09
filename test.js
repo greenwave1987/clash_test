@@ -4,7 +4,7 @@
  * 日志脱敏 + GitHub Actions Summary
  */
 
-import fs from "fs";
+const fs = require("fs");
 
 const rawBaseUrl = process.env.BASE_URL;
 if (!rawBaseUrl) {
