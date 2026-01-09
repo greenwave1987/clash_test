@@ -6,20 +6,20 @@
 
 | URL | 延迟 (ms) |
 |---|---|
-| http://jz.***.uy | 910 |
+| http://jz.***.uy | 823 |
 | http://jz.***.io | ❌ |
-| http://greenwave1987.***.in | 1009 |
-| http://jz.***.xyz | 548 |
+| http://greenwave1987.***.in | ❌ |
+| http://jz.***.xyz | 478 |
 
 ## 延迟曲线
 
 ```mermaid
 xychart-beta
   title "UI Latency (ms)"
-  x-axis ["16:01:39"]
+  x-axis ["16:01:39", "16:15:17"]
   y-axis "ms" 0 --> 3000
-  line "http://jz.***.uy" [910]
-  line "http://jz.***.io" [null]
-  line "http://greenwave1987.***.in" [1009]
-  line "http://jz.***.xyz" [548]
+  line "http://jz.***.uy" [910, 823]
+  line "http://jz.***.io" [null, null]
+  line "http://greenwave1987.***.in" [1009, null]
+  line "http://jz.***.xyz" [548, 478]
 ```
