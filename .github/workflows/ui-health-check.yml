@@ -1,45 +1,20 @@
-name: UI Latency Monitor
+- name: Commit & push results
+  run: |
+    git config user.name "github-actions"
+    git config user.email "github-actions@github.com"
 
-on:
-  schedule:
-    - cron: "*/30 * * * *"   # 每 30 分钟
-  workflow_dispatch:
+    # 确保工作区干净，先存储未提交的更改（如果有的话）
+    git stash -u || echo "No changes to stash"
 
-# 必须，否则无法提交 README / json
-permissions:
-  contents: write
+    # 拉取并进行 rebase
+    git pull --rebase origin main
 
-jobs:
-  monitor:
-    runs-on: ubuntu-latest
+    # 恢复之前存储的更改（如果有的话）
+    git stash pop || echo "No stashed changes"
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # 防止 fetch first / rebase 失败
+    # 添加和提交文件
+    git add ui_history.json README.md
+    git commit -m "chore: update UI latency history" || echo "No changes to commit"
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
-
-      - name: Run UI latency test
-        env:
-          BASE_URL: ${{ secrets.BASE_URL }}
-          USERNAME: ${{ secrets.USERNAME }}
-          PASSWORD: ${{ secrets.PASSWORD }}
-        run: |
-          node test.js
-
-      - name: Commit & push results
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-
-          git pull --rebase origin main
-
-          git add ui_history.json README.md
-          git commit -m "chore: update UI latency history" || echo "No changes to commit"
-
-          git push origin main
+    # 推送到远程仓库
+    git push origin main
