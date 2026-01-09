@@ -1,35 +1,45 @@
-name: UI Monitor
+name: UI Latency Monitor
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "*/30 * * * *"   # 每 30 分钟
   workflow_dispatch:
 
+# 必须，否则无法提交 README / json
 permissions:
-  contents: write   # ⭐ 关键这一行
+  contents: write
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 防止 fetch first / rebase 失败
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      - name: Run monitor
+      - name: Run UI latency test
         env:
           BASE_URL: ${{ secrets.BASE_URL }}
           USERNAME: ${{ secrets.USERNAME }}
           PASSWORD: ${{ secrets.PASSWORD }}
-        run: node test.js
+        run: |
+          node test.js
 
-      - name: Commit history & README
+      - name: Commit & push results
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
+
+          git pull --rebase origin main
+
           git add ui_history.json README.md
-          git commit -m "chore: update UI status history" || true
-          git push
+          git commit -m "chore: update UI latency history" || echo "No changes to commit"
+
+          git push origin main
