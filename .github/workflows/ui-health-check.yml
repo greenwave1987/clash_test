@@ -26,3 +26,10 @@ jobs:
           PASSWORD: ${{ secrets.PASSWORD }}
         run: |
           node test.js
+      - name: Commit UI history & README
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add ui_history.json README.md
+          git commit -m "chore: update UI status history" || true
+          git push
