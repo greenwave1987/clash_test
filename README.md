@@ -6,20 +6,20 @@
 
 | URL | 延迟 (ms) |
 |---|---|
-| http://jz.***.uy | 909 |
+| http://jz.***.uy | ❌ |
 | http://jz.***.io | ❌ |
-| http://greenwave1987.***.in | 992 |
-| http://jz.***.xyz | 566 |
+| http://greenwave1987.***.in | 1096 |
+| http://jz.***.xyz | 708 |
 
 ## 延迟曲线
 
 ```mermaid
 xychart-beta
   title "UI Latency (ms)"
-  x-axis ["16:01:39", "16:15:17", "16:50:52", "17:15:37", "17:43:41", "18:17:48", "18:52:35", "19:12:54", "19:37:36"]
+  x-axis ["16:01:39", "16:15:17", "16:50:52", "17:15:37", "17:43:41", "18:17:48", "18:52:35", "19:12:54", "19:37:36", "20:14:01"]
   y-axis "ms" 0 --> 3000
-  line "http://jz.***.uy" [910, 823, 903, 975, 990, 825, 890, 961, 909]
-  line "http://jz.***.io" [null, null, null, null, null, 658, null, null, null]
-  line "http://greenwave1987.***.in" [1009, null, null, 926, 845, null, 1140, null, 992]
-  line "http://jz.***.xyz" [548, 478, null, 467, 411, null, 556, 482, 566]
+  line "http://jz.***.uy" [910, 823, 903, 975, 990, 825, 890, 961, 909, null]
+  line "http://jz.***.io" [null, null, null, null, null, 658, null, null, null, null]
+  line "http://greenwave1987.***.in" [1009, null, null, 926, 845, null, 1140, null, 992, 1096]
+  line "http://jz.***.xyz" [548, 478, null, 467, 411, null, 556, 482, 566, 708]
 ```
