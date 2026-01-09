@@ -1,24 +1,33 @@
 /**
- * UI 异常自动重启脚本（BASE_URL 多地址）
+ * UI 异常自动重启脚本（最终完整版）
+ * - BASE_URL 多地址
+ * - 日志 URL 脱敏
+ * - GitHub Actions Summary
+ * - 24h 历史曲线写入 README
+ *
+ * 环境变量：
  * BASE_URL=http://a,http://b,http://c
- * 日志脱敏 + GitHub Actions Summary
+ * USERNAME=xxx
+ * PASSWORD=xxx
  */
 
 const fs = require("fs");
 
+// ==================== 基础配置 ====================
+
+const HISTORY_FILE = "ui_history.json";
+const README_FILE = "README.md";
+const HISTORY_HOURS = 24;
+
 const rawBaseUrl = process.env.BASE_URL;
-if (!rawBaseUrl) {
-  throw new Error("❌ 未设置 BASE_URL 环境变量");
-}
+if (!rawBaseUrl) throw new Error("❌ 未设置 BASE_URL");
 
 const BASE_URLS = rawBaseUrl
   .split(",")
   .map(u => u.trim())
   .filter(Boolean);
 
-if (BASE_URLS.length === 0) {
-  throw new Error("❌ BASE_URL 解析后为空");
-}
+if (BASE_URLS.length === 0) throw new Error("❌ BASE_URL 为空");
 
 const CONFIG = {
   USERNAME: process.env.USERNAME,
@@ -27,30 +36,31 @@ const CONFIG = {
   FAIL_THRESHOLD: 3,
 };
 
-let failCount = 0;
-let checkCount = 0;
 const MAX_CHECK_COUNT = 3;
 
+// ==================== 运行状态 ====================
+
+let checkCount = 0;
+let failCount = 0;
 const summaryRows = [];
+
+// ==================== 工具函数 ====================
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-/**
- * URL 日志脱敏（仅用于日志和 Summary）
- */
 function maskUrl(url) {
   try {
     const u = new URL(url);
-    const parts = u.hostname.split(".");
-    if (parts.length <= 2) return url;
-    return `${u.protocol}//${parts[0]}.***.${parts[parts.length - 1]}`;
+    const p = u.hostname.split(".");
+    if (p.length <= 2) return url;
+    return `${u.protocol}//${p[0]}.***.${p[p.length - 1]}`;
   } catch {
     return url;
   }
 }
 
-/**
- * 检测单个 UI（详细日志）
- */
+// ==================== UI 检测 ====================
+
 async function checkSingleUI(baseUrl) {
   const realUrl = `${baseUrl}:9090/ui/`;
   const logUrl = maskUrl(realUrl);
@@ -62,14 +72,11 @@ async function checkSingleUI(baseUrl) {
   console.log(`➡️  [CHECK] GET ${logUrl}`);
 
   try {
-    const res = await fetch(realUrl, {
-      method: "GET",
-      signal: controller.signal,
-    });
-
+    const res = await fetch(realUrl, { signal: controller.signal });
     const cost = Date.now() - start;
+
     console.log(
-      `⬅️  [RESP] ${logUrl} status=${res.status} ok=${res.ok} time=${cost}ms`
+      `⬅️  [RESP] ${logUrl} status=${res.status} ok=${res.ok} ${cost}ms`
     );
 
     summaryRows.push({
@@ -83,11 +90,11 @@ async function checkSingleUI(baseUrl) {
   } catch (err) {
     const cost = Date.now() - start;
 
-    if (err.name === "AbortError") {
-      console.error(`⏱️  [TIMEOUT] ${logUrl} ${cost}ms`);
-    } else {
-      console.error(`💥 [ERROR] ${logUrl} ${err.message}`);
-    }
+    console.error(
+      err.name === "AbortError"
+        ? `⏱️  [TIMEOUT] ${logUrl} ${cost}ms`
+        : `💥 [ERROR] ${logUrl} ${err.message}`
+    );
 
     summaryRows.push({
       url: maskUrl(baseUrl),
@@ -102,31 +109,23 @@ async function checkSingleUI(baseUrl) {
   }
 }
 
-/**
- * 轮询检测所有 BASE_URL
- */
 async function checkAnyUI() {
-  console.log("🔄 开始轮询 UI 地址");
+  console.log("🔄 轮询 UI 地址");
 
   for (const baseUrl of BASE_URLS) {
     const ok = await checkSingleUI(baseUrl);
     console.log(
       `🔗 [RESULT] ${maskUrl(baseUrl)} → ${ok ? "✅ OK" : "❌ FAIL"}`
     );
-
-    if (ok) {
-      console.log(`🎯 命中可用 UI：${maskUrl(baseUrl)}`);
-      return baseUrl;
-    }
+    if (ok) return baseUrl;
   }
 
-  console.warn("🚫 本轮所有 UI 检测失败");
+  console.warn("🚫 本轮全部 UI 不可用");
   return null;
 }
 
-/**
- * 登录
- */
+// ==================== 登录 & 重启 ====================
+
 async function login(baseUrl) {
   console.log(`🔐 登录 ${maskUrl(baseUrl)}`);
 
@@ -134,7 +133,7 @@ async function login(baseUrl) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Language": "zh_cn",
+      Language: "zh_cn",
     },
     body: JSON.stringify({
       username: CONFIG.USERNAME,
@@ -142,51 +141,39 @@ async function login(baseUrl) {
     }),
   });
 
-  console.log(`⬅️  登录响应 status=${res.status}`);
-
   const json = await res.json().catch(() => null);
 
   if (!res.ok || json?.success !== 200) {
     console.error("❌ 登录失败", json);
-    throw new Error("登录失败");
+    throw new Error("login failed");
   }
 
-  console.log("✅ 登录成功");
   return json.data.token.access_token;
 }
 
-/**
- * 重启系统
- */
 async function restartSystem(baseUrl, token) {
-  console.log(`🔁 发送重启请求 ${maskUrl(baseUrl)}`);
+  console.log(`🔁 发送重启 ${maskUrl(baseUrl)}`);
 
   try {
-    const res = await fetch(`${baseUrl}:9090/v1/sys/state/restart`, {
+    await fetch(`${baseUrl}:9090/v1/sys/state/restart`, {
       method: "PUT",
       headers: {
-        "Authorization": `Bearer ${token}`,
-        "Language": "zh_cn",
+        Authorization: `Bearer ${token}`,
+        Language: "zh_cn",
       },
     });
-
-    console.log(`⬅️  重启请求已发送 status=${res.status}`);
-  } catch (err) {
-    console.warn("⚠️ 重启过程中连接断开（属正常）", err.message);
+  } catch {
+    console.warn("⚠️ 重启断连（正常）");
   }
 }
 
-/**
- * 写入 GitHub Actions Summary
- */
+// ==================== Summary ====================
+
 function writeSummary() {
   const file = process.env.GITHUB_STEP_SUMMARY;
-  if (!file) {
-    console.warn("ℹ️ 非 GitHub Actions 环境，跳过 Summary");
-    return;
-  }
+  if (!file) return;
 
-  let md = `## 🖥 UI 可用性检测汇总\n\n`;
+  let md = `## 🖥 UI 检测汇总\n\n`;
   md += `| 地址 | 状态 | HTTP | 耗时 |\n`;
   md += `|------|------|------|------|\n`;
 
@@ -197,54 +184,114 @@ function writeSummary() {
   fs.appendFileSync(file, md);
 }
 
-/**
- * 主流程
- */
+// ==================== 24h 历史 & README ====================
+
+function updateHistory(isOk) {
+  let history = [];
+
+  if (fs.existsSync(HISTORY_FILE)) {
+    try {
+      history = JSON.parse(fs.readFileSync(HISTORY_FILE, "utf-8"));
+    } catch {}
+  }
+
+  const now = Date.now();
+  history.push({ ts: now, ok: isOk ? 1 : 0 });
+
+  const cutoff = now - HISTORY_HOURS * 3600 * 1000;
+  history = history.filter(h => h.ts >= cutoff);
+
+  fs.writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2));
+  return history;
+}
+
+function buildMermaid(history) {
+  const labels = history.map(h =>
+    new Date(h.ts).toISOString().substring(11, 16)
+  );
+  const values = history.map(h => h.ok);
+
+  return `
+\`\`\`mermaid
+xychart-beta
+  title "UI 可用性（过去 24 小时）"
+  x-axis [${labels.map(l => `"${l}"`).join(", ")}]
+  y-axis "状态" 0 --> 1
+  line [${values.join(", ")}]
+\`\`\`
+`;
+}
+
+function updateReadme(chart) {
+  let readme = fs.existsSync(README_FILE)
+    ? fs.readFileSync(README_FILE, "utf-8")
+    : "# UI Monitor\n";
+
+  const block = `
+<!-- UI-STATUS-START -->
+## 📈 UI 状态趋势（自动更新）
+
+${chart}
+<!-- UI-STATUS-END -->
+`;
+
+  if (readme.includes("<!-- UI-STATUS-START -->")) {
+    readme = readme.replace(
+      /<!-- UI-STATUS-START -->[\s\S]*?<!-- UI-STATUS-END -->/,
+      block
+    );
+  } else {
+    readme += "\n" + block;
+  }
+
+  fs.writeFileSync(README_FILE, readme);
+}
+
+// ==================== 主流程 ====================
+
 async function run() {
-  console.log("🚀 开始 UI 多地址检测");
+  console.log("🚀 开始 UI 监控");
   console.log("🔗 BASE_URLS:", BASE_URLS.map(maskUrl).join(", "));
+
+  let finalOk = false;
 
   while (checkCount < MAX_CHECK_COUNT) {
     checkCount++;
-    console.log(`\n=========== 第 ${checkCount} 轮检测 ===========`);
+    console.log(`\n=========== 第 ${checkCount} 轮 ===========`);
 
-    const okBaseUrl = await checkAnyUI();
-
-    if (okBaseUrl) {
+    const okUrl = await checkAnyUI();
+    if (okUrl) {
+      finalOk = true;
       failCount = 0;
-      console.log(`✅ UI 正常（${maskUrl(okBaseUrl)}）`);
-    } else {
-      failCount++;
-      console.warn(`⚠️ 连续失败 ${failCount}/${CONFIG.FAIL_THRESHOLD}`);
+      break;
+    }
 
-      if (failCount >= CONFIG.FAIL_THRESHOLD) {
-        console.error("🔥 达到失败阈值，触发重启");
+    failCount++;
+    console.warn(`⚠️ 连续失败 ${failCount}/${CONFIG.FAIL_THRESHOLD}`);
 
-        try {
-          const controlUrl = BASE_URLS[0];
-          console.log(`🎛 控制入口 ${maskUrl(controlUrl)}`);
-
-          const token = await login(controlUrl);
-          await restartSystem(controlUrl, token);
-
-          console.log("✅ 重启流程完成");
-        } catch (err) {
-          console.error("❌ 重启流程失败", err.message);
-        }
-        break;
+    if (failCount >= CONFIG.FAIL_THRESHOLD) {
+      console.error("🔥 触发重启");
+      try {
+        const token = await login(BASE_URLS[0]);
+        await restartSystem(BASE_URLS[0], token);
+      } catch (e) {
+        console.error("❌ 重启失败", e.message);
       }
+      break;
     }
 
-    if (checkCount < MAX_CHECK_COUNT) {
-      console.log(`⏳ 等待 ${CONFIG.CHECK_INTERVAL_MS / 1000}s`);
-      await sleep(CONFIG.CHECK_INTERVAL_MS);
-    }
+    await sleep(CONFIG.CHECK_INTERVAL_MS);
   }
 
   writeSummary();
-  console.log("\n🏁 检测结束，程序退出");
+
+  const history = updateHistory(finalOk);
+  const chart = buildMermaid(history);
+  updateReadme(chart);
+
+  console.log("🏁 脚本结束");
 }
 
 run().catch(err => {
-  console.error("❌ 脚本异常退出", err);
+  console.error("❌ 脚本异常", err);
 });
