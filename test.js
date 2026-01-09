@@ -37,7 +37,7 @@ async function checkSingleUI(baseUrl) {
   const timer = setTimeout(() => controller.abort(), 5000);
 
   try {
-    const res = await fetch(`${baseUrl}/ui`, {
+    const res = await fetch(`${baseUrl}/ui/#/setup`, {
       method: "GET",
       signal: controller.signal,
     });
