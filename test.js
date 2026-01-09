@@ -1,21 +1,24 @@
 /**
- * UI 异常自动重启脚本
- * - 最多检测 3 次
- * - 连续失败 3 次才重启
- * - 重启后立即退出
+ * UI 异常自动重启脚本（BASE_URL 环境变量多地址）
+ * BASE_URL=http://a,http://b,http://c
  */
 
-const BASE_URL = process.env.BASE_URL;
+const rawBaseUrl = process.env.BASE_URL;
 
-if (!BASE_URL) {
+if (!rawBaseUrl) {
   throw new Error("❌ 未设置 BASE_URL 环境变量");
 }
 
-const CONFIG = {
-  UI_URL: `${BASE_URL}/ui`,
-  LOGIN_URL: `${BASE_URL}/v1/users/login`,
-  RESTART_URL: `${BASE_URL}/v1/sys/state/restart`,
+const BASE_URLS = rawBaseUrl
+  .split(",")
+  .map(u => u.trim())
+  .filter(Boolean);
 
+if (BASE_URLS.length === 0) {
+  throw new Error("❌ BASE_URL 解析后为空");
+}
+
+const CONFIG = {
   USERNAME: process.env.USERNAME,
   PASSWORD: process.env.PASSWORD,
 
@@ -29,12 +32,12 @@ const MAX_CHECK_COUNT = 3;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function checkUI() {
+async function checkSingleUI(baseUrl) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
 
   try {
-    const res = await fetch(CONFIG.UI_URL, {
+    const res = await fetch(`${baseUrl}/ui`, {
       method: "GET",
       signal: controller.signal,
     });
@@ -46,8 +49,21 @@ async function checkUI() {
   }
 }
 
-async function login() {
-  const res = await fetch(CONFIG.LOGIN_URL, {
+/**
+ * 轮询检测所有 BASE_URL
+ * 任意一个成功即返回该 baseUrl
+ */
+async function checkAnyUI() {
+  for (const baseUrl of BASE_URLS) {
+    const ok = await checkSingleUI(baseUrl);
+    console.log(`🔗 ${baseUrl} → ${ok ? "OK" : "FAIL"}`);
+    if (ok) return baseUrl;
+  }
+  return null;
+}
+
+async function login(baseUrl) {
+  const res = await fetch(`${baseUrl}/v1/users/login`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -66,9 +82,9 @@ async function login() {
   return json.data.token.access_token;
 }
 
-async function restartSystem(token) {
+async function restartSystem(baseUrl, token) {
   try {
-    await fetch(CONFIG.RESTART_URL, {
+    await fetch(`${baseUrl}/v1/sys/state/restart`, {
       method: "PUT",
       headers: {
         "Authorization": `Bearer ${token}`,
@@ -76,35 +92,38 @@ async function restartSystem(token) {
       },
     });
   } catch {
-    // 重启时断连是正常的
+    // 重启时断连属正常
   }
 }
 
 async function run() {
-  console.log("🚀 开始 UI 检测（最多 3 次）");
+  console.log("🚀 开始 UI 多地址检测");
+  console.log("🔗 BASE_URLS =", BASE_URLS.join(", "));
 
   while (checkCount < MAX_CHECK_COUNT) {
     checkCount++;
-    console.log(`🔍 第 ${checkCount} 次检测`);
+    console.log(`\n🔍 第 ${checkCount} 轮检测`);
 
-    const ok = await checkUI();
+    const okBaseUrl = await checkAnyUI();
 
-    if (ok) {
+    if (okBaseUrl) {
       failCount = 0;
-      console.log("✅ UI 正常");
+      console.log(`✅ UI 正常（${okBaseUrl}）`);
     } else {
       failCount++;
-      console.warn(`⚠️ UI 异常 ${failCount}/${CONFIG.FAIL_THRESHOLD}`);
+      console.warn(`⚠️ 全部 UI 不可用 ${failCount}/${CONFIG.FAIL_THRESHOLD}`);
 
       if (failCount >= CONFIG.FAIL_THRESHOLD) {
-        console.error("🔥 连续异常，触发重启");
+        console.error("🔥 连续失败，触发重启");
 
         try {
-          const token = await login();
-          await restartSystem(token);
+          // 默认使用第一个 BASE_URL 作为控制入口
+          const controlUrl = BASE_URLS[0];
+          const token = await login(controlUrl);
+          await restartSystem(controlUrl, token);
           console.log("🔁 已发送重启指令");
         } catch (err) {
-          console.error("❌ 重启流程失败", err.message);
+          console.error("❌ 重启失败", err.message);
         }
         break;
       }
@@ -115,9 +134,9 @@ async function run() {
     }
   }
 
-  console.log("🏁 检测结束，程序退出");
+  console.log("\n🏁 检测结束，程序退出");
 }
 
 run().catch(err => {
-  console.error("❌ 脚本异常退出", err);
+  console.error("❌ 脚本异常", err);
 });
