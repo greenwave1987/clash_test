@@ -1,32 +1,32 @@
-name: UI Health Check & Auto Restart
+name: UI Monitor
 
 on:
   schedule:
-    # 每 30 分钟检查一次（可改）
     - cron: "*/30 * * * *"
   workflow_dispatch:
 
+permissions:
+  contents: write   # ⭐ 关键这一行
+
 jobs:
-  ui-check:
+  monitor:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: "18"
+          node-version: 18
 
-      - name: Run UI health check
+      - name: Run monitor
         env:
           BASE_URL: ${{ secrets.BASE_URL }}
           USERNAME: ${{ secrets.USERNAME }}
           PASSWORD: ${{ secrets.PASSWORD }}
-        run: |
-          node test.js
-      - name: Commit UI history & README
+        run: node test.js
+
+      - name: Commit history & README
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
