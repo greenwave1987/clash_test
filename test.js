@@ -36,7 +36,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
  * 检测单个 UI（详细日志）
  */
 async function checkSingleUI(baseUrl) {
-  const url = `${baseUrl}/ui/#/setup`;
+  const url = `${baseUrl}:9090/ui/#/setup`;
   const controller = new AbortController();
   const start = Date.now();
   const timer = setTimeout(() => controller.abort(), 5000);
@@ -99,7 +99,7 @@ async function checkAnyUI() {
 async function login(baseUrl) {
   console.log(`🔐 开始登录 ${baseUrl}`);
 
-  const res = await fetch(`${baseUrl}/v1/users/login`, {
+  const res = await fetch(`${baseUrl}:9090/v1/users/login`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -128,7 +128,7 @@ async function restartSystem(baseUrl, token) {
   console.log(`🔁 发送重启请求 ${baseUrl}`);
 
   try {
-    const res = await fetch(`${baseUrl}/v1/sys/state/restart`, {
+    const res = await fetch(`${baseUrl}:9090/v1/sys/state/restart`, {
       method: "PUT",
       headers: {
         "Authorization": `Bearer ${token}`,
