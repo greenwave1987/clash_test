@@ -1,0 +1,28 @@
+name: UI Health Check & Auto Restart
+
+on:
+  schedule:
+    # 每 30 分钟检查一次（可改）
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ui-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Run UI health check
+        env:
+          BASE_URL: ${{ secrets.BASE_URL }}
+          USERNAME: ${{ secrets.USERNAME }}
+          PASSWORD: ${{ secrets.PASSWORD }}
+        run: |
+          node ui_restart.js
