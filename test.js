@@ -30,7 +30,7 @@ async function testLatency(url) {
   const start = performance.now();
 
   try {
-    await fetch(url, {
+    await fetch(url+':9090/ui/, {
       method: "GET",
       mode: "no-cors",
       signal: controller.signal
