@@ -47,7 +47,7 @@ async function testLatency(url) {
     await fetch(`${url}:9090/ui/`, { method: "GET", signal: controller.signal });
     return Math.round(performance.now() - start);
   } catch {
-    return -1; // 超时或失败
+    return -1; // 超时或失败用 -1 表示
   } finally {
     clearTimeout(timer);
   }
@@ -100,7 +100,7 @@ function generateReadme(history) {
     md += `  line "${maskUrl(url)}" [`;
     md += times.map(t => {
       const v = history[t][url];
-      return v >= 0 ? v : "null";
+      return v >= 0 ? v : -1;
     }).join(", ");
     md += "]\n";
   }
@@ -124,7 +124,7 @@ async function login(baseUrl) {
     })
   });
 
-  const json = await res.json().catch(() => -1);
+  const json = await res.json().catch(() => null);
   if (!res.ok || json?.success !== 200) {
     throw new Error("登录失败");
   }
