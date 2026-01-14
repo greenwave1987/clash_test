@@ -1,18 +1,17 @@
-name: Playwright with Gost Tunnel
+name: Playwright Proxy Polling
 on: [push, workflow_dispatch]
 
 jobs:
-  run-task:
+  poll-proxies:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Gost
         run: |
-          # 下载并直接解压到目标文件名
+          # 使用管道直接解压，避免文件名匹配问题
           curl -L https://github.com/ginuerzh/gost/releases/download/v2.11.5/gost-linux-amd64-2.11.5.gz | gunzip > gost
           chmod +x gost
-          # 验证是否安装成功
           ./gost -V
 
       - name: Set up Python
@@ -20,12 +19,12 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           pip install requests[socks] playwright
           playwright install chromium --with-deps
 
-      - name: Run
+      - name: Run Script
         env:
           SOCKS5_INFO: ${{ secrets.SOCKS5_INFO }}
         run: python main.py
