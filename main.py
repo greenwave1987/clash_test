@@ -4,65 +4,74 @@ import time
 import requests
 from playwright.sync_api import sync_playwright
 
+def run_playwright_task(proxy_url):
+    """执行具体的 Playwright 业务逻辑"""
+    with sync_playwright() as p:
+        # 此时连接的是 gost 提供的本地无密码 HTTP 代理
+        browser = p.chromium.launch(proxy={"server": proxy_url})
+        context = browser.new_context()
+        page = context.new_page()
+        try:
+            page.goto("https://httpbin.org/ip", timeout=30000)
+            ip_info = page.locator("body").inner_text()
+            print(f"🎉 Playwright 成功执行！出口 IP 详情:\n{ip_info}")
+            return True
+        except Exception as e:
+            print(f"❌ Playwright 访问页面失败: {e}")
+            return False
+        finally:
+            browser.close()
+
 def test_and_run():
     socks5_info = os.environ.get("SOCKS5_INFO", "")
-    if not socks5_info: return
+    if not socks5_info:
+        print("未检测到 SOCKS5_INFO 环境变量")
+        return
 
-    proxy_list = socks5_info.split(',')
-    
-    # 尝试寻找一个可用的代理并建立隧道
-    for p_str in proxy_list:
+    proxy_list = [p.strip() for p in socks5_info.split(',') if p.strip()]
+    print(f"开始轮询测试，共 {len(proxy_list)} 个代理节点...")
+
+    for index, p_str in enumerate(proxy_list):
+        print(f"\n--- 正在测试节点 [{index + 1}/{len(proxy_list)}]: {p_str.split('@')[-1]} ---")
+        gost_proc = None
         try:
-            # 解析格式 user:pass@ip:port
-            auth_part, address_part = p_str.split('@')
-            # gost 需要的格式是 socks5://user:pass@ip:port
-            remote_proxy = f"socks5://{p_str}"
-            
-            print(f"尝试连接代理: {address_part} ...")
-
-            # 1. 启动 gost 隧道 (将本地 8080 映射到远程 SOCKS5)
-            # -L=:8080 指在本地 8080 端口启动 HTTP 代理
-            # -F=... 指转发到远程 SOCKS5
+            # 1. 启动 Gost 隧道
+            # 将远程带认证的 SOCKS5 转换为本地 8080 端口的免密 HTTP 代理
+            remote_url = f"socks5://{p_str}"
             gost_proc = subprocess.Popen(
-                ["./gost", "-L=:8080", f"-F={remote_proxy}"],
+                ["./gost", "-L=:8080", f"-F={remote_url}"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
             
-            # 等待隧道建立
-            time.sleep(2)
+            # 预留一点时间给 gost 启动监听端口
+            time.sleep(3)
 
-            # 2. 验证本地隧道是否通畅
-            try:
-                test_res = requests.get(
-                    "https://ifconfig.me/ip", 
-                    proxies={"http": "http://127.0.0.1:8080", "https": "http://127.0.0.1:8080"}, 
-                    timeout=10
-                )
-                if test_res.status_code == 200:
-                    print(f"✅ 隧道建立成功！出口 IP: {test_res.text.strip()}")
-                    
-                    # 3. Playwright 访问 (连接本地无需密码的 HTTP 代理)
-                    run_playwright("http://127.0.0.1:8080")
-                    gost_proc.terminate() # 完成后关闭
+            # 2. 验证隧道是否通畅 (使用 requests 快速预检)
+            proxies = {"http": "http://127.0.0.1:8080", "https": "http://127.0.0.1:8080"}
+            response = requests.get("https://ifconfig.me/ip", proxies=proxies, timeout=12)
+            
+            if response.status_code == 200:
+                current_ip = response.text.strip()
+                print(f"✅ 隧道预检成功，当前 IP: {current_ip}")
+
+                # 3. 运行 Playwright
+                success = run_playwright_task("http://127.0.0.1:8080")
+                if success:
+                    print("✅ 任务已完成，停止轮询。")
                     break
-            except:
-                print("❌ 该代理不可用，尝试下一个...")
-                gost_proc.terminate()
-        except Exception as e:
-            print(f"解析出错: {e}")
+                else:
+                    print("⚠️ 隧道可用但 Playwright 任务失败，尝试下一个节点...")
+            else:
+                print(f"❌ 代理返回状态码: {response.status_code}")
 
-def run_playwright(proxy_url):
-    with sync_playwright() as p:
-        # Chromium 对本地 HTTP 代理支持极好
-        browser = p.chromium.launch(proxy={"server": proxy_url})
-        page = browser.new_page()
-        try:
-            page.goto("https://httpbin.org/ip", timeout=30000)
-            print("Playwright 最终通过隧道确认 IP:")
-            print(page.locator("body").inner_text())
+        except Exception as e:
+            print(f"❌ 节点测试出错: {e}")
         finally:
-            browser.close()
+            if gost_proc:
+                gost_proc.terminate()
+                gost_proc.wait()
+                print("清理 Gost 进程。")
 
 if __name__ == "__main__":
     test_and_run()
