@@ -4,88 +4,86 @@ import time
 import requests
 from playwright.sync_api import sync_playwright
 
-def run_playwright_task(proxy_url):
-    """执行具体的 Playwright 业务逻辑"""
+def run_playwright_check(proxy_url):
+    """使用 Playwright 访问并提取 IP 文本"""
     with sync_playwright() as p:
-        # 连接 gost 提供的本地无密码 HTTP 代理
+        # 连接本地 gost 转换后的 HTTP 代理
+        browser = p.chromium.launch(proxy={"server": proxy_url})
+        context = browser.new_context()
+        page = context.new_page()
+        
+        # 定义几个常用的 IP 检测 API
+        test_url = "https://api.ipify.org?format=json" 
+        
         try:
-            browser = p.chromium.launch(proxy={"server": proxy_url})
-            context = browser.new_context()
-            page = context.new_page()
-            page.goto("https://httpbin.org/ip", timeout=20000)
-            ip_info = page.locator("body").inner_text()
-            print(f"   [Playwright] 访问成功，出口 IP 详情: {ip_info.strip()}")
-            browser.close()
-            return True
+            print(f"   [Playwright] 正在访问 {test_url} ...")
+            page.goto(test_url, timeout=25000)
+            
+            # 获取页面 JSON 内容并解析
+            # 例如返回: {"ip":"65.108.126.100"}
+            content = page.locator("body").inner_text()
+            print(f"   [Playwright] 原始返回: {content.strip()}")
+            
+            # 简单的验证逻辑：确保返回内容包含数字和点（IP格式）
+            if "." in content:
+                return True, content.strip()
+            return False, "Invalid Response"
         except Exception as e:
-            print(f"   [Playwright] 访问失败: {e}")
-            return False
+            return False, str(e)
+        finally:
+            browser.close()
 
 def test_all_proxies():
     socks5_info = os.environ.get("SOCKS5_INFO", "")
-    if not socks5_info:
-        print("未检测到 SOCKS5_INFO 环境变量")
-        return
-
     proxy_list = [p.strip() for p in socks5_info.split(',') if p.strip()]
-    print(f"🚀 开始全量测试，共 {len(proxy_list)} 个代理节点...\n")
-
-    results = []
+    
+    summary = []
 
     for index, p_str in enumerate(proxy_list):
-        node_name = p_str.split('@')[-1]
-        print(f"▶ 正在测试节点 [{index + 1}/{len(proxy_list)}]: {node_name}")
+        node_ip = p_str.split('@')[-1]
+        print(f"\n🚀 正在全面检测节点 [{index+1}/{len(proxy_list)}]: {node_ip}")
         
-        gost_proc = None
-        status = "Failed"
-        
+        # 1. 启动 Gost 隧道
+        gost_proc = subprocess.Popen(
+            ["./gost", "-L=:8080", f"-F=socks5://{p_str}"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        time.sleep(4) # 稍微多等一会，确保隧道稳定
+
+        # 2. 预检 (Requests) - 快速确认
+        pre_check_ip = "N/A"
         try:
-            # 1. 启动 Gost 隧道
-            remote_url = f"socks5://{p_str}"
-            gost_proc = subprocess.Popen(
-                ["./gost", "-L=:8080", f"-F={remote_url}"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            
-            # 预留时间给端口监听
-            time.sleep(3)
+            res = requests.get("https://api.ipify.org", 
+                               proxies={"http": "http://127.0.0.1:8080", "https": "http://127.0.0.1:8080"}, 
+                               timeout=10)
+            pre_check_ip = res.text.strip()
+            print(f"   [Pre-check] Requests 检测到的 IP: {pre_check_ip}")
+        except:
+            print("   [Pre-check] 失败，代理可能不通")
 
-            # 2. 预检 (Requests)
-            proxies = {"http": "http://127.0.0.1:8080", "https": "http://127.0.0.1:8080"}
-            try:
-                response = requests.get("https://ifconfig.me/ip", proxies=proxies, timeout=10)
-                if response.status_code == 200:
-                    print(f"   [Pre-check] 隧道通畅，IP: {response.text.strip()}")
-                    
-                    # 3. 运行 Playwright 验证
-                    if run_playwright_task("http://127.0.0.1:8080"):
-                        status = "Success"
-                    else:
-                        status = "Playwright Failed"
-                else:
-                    status = f"HTTP {response.status_code}"
-            except Exception as e:
-                status = "Connection Timeout/Error"
-                print(f"   [Pre-check] 失败: {e}")
+        # 3. 深度检测 (Playwright) - 模拟浏览器行为
+        success, pw_result = run_playwright_check("http://127.0.0.1:8080")
+        
+        # 结果判定
+        final_status = "✅ 成功" if success else "❌ 失败"
+        summary.append({
+            "node": node_ip,
+            "req_ip": pre_check_ip,
+            "pw_ip": pw_result if success else "Error",
+            "status": final_status
+        })
 
-        except Exception as e:
-            status = f"Error: {str(e)}"
-        finally:
-            if gost_proc:
-                gost_proc.terminate()
-                gost_proc.wait()
-            
-            results.append({"node": node_name, "status": status})
-            print(f"--- 节点测试结束，状态: {status} ---\n")
+        # 清理
+        gost_proc.terminate()
+        gost_proc.wait()
 
-    # 4. 打印最终汇总报告
-    print("="*50)
-    print(f"{'代理节点 (IP:Port)':<30} | {'测试结果':<15}")
-    print("-"*50)
-    for res in results:
-        print(f"{res['node']:<30} | {res['status']:<15}")
-    print("="*50)
+    # 打印最终详细报告
+    print("\n" + "="*80)
+    print(f"{'节点地址':<25} | {'Requests IP':<18} | {'Playwright IP':<18} | {'状态'}")
+    print("-" * 80)
+    for s in summary:
+        print(f"{s['node']:<25} | {s['req_ip']:<18} | {s['pw_ip']:<18} | {s['status']}")
+    print("="*80)
 
 if __name__ == "__main__":
     test_all_proxies()
