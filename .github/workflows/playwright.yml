@@ -1,18 +1,17 @@
-name: Playwright Proxy Polling
+name: Full Proxy Sweep
 on: [push, workflow_dispatch]
 
 jobs:
-  poll-proxies:
+  sweep:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Gost
         run: |
-          # 使用管道直接解压，避免文件名匹配问题
+          # 稳健安装 gost
           curl -L https://github.com/ginuerzh/gost/releases/download/v2.11.5/gost-linux-amd64-2.11.5.gz | gunzip > gost
           chmod +x gost
-          ./gost -V
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -24,7 +23,7 @@ jobs:
           pip install requests[socks] playwright
           playwright install chromium --with-deps
 
-      - name: Run Script
+      - name: Run Full Test
         env:
           SOCKS5_INFO: ${{ secrets.SOCKS5_INFO }}
         run: python main.py
