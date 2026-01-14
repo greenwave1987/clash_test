@@ -9,11 +9,11 @@ jobs:
 
       - name: Install Gost
         run: |
-          # 下载最新的 gost (Linux 64位)
-          curl -L https://github.com/ginuerzh/gost/releases/download/v2.11.5/gost-linux-amd64-2.11.5.gz > gost.gz
-          gunzip gost.gz
-          mv gost-linux-amd64-2.11.5 gost
+          # 下载并直接解压到目标文件名
+          curl -L https://github.com/ginuerzh/gost/releases/download/v2.11.5/gost-linux-amd64-2.11.5.gz | gunzip > gost
           chmod +x gost
+          # 验证是否安装成功
+          ./gost -V
 
       - name: Set up Python
         uses: actions/setup-python@v5
