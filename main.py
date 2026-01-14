@@ -1,62 +1,66 @@
 import os
+import subprocess
+import time
 import requests
 from playwright.sync_api import sync_playwright
 
 def test_and_run():
     socks5_info = os.environ.get("SOCKS5_INFO", "")
-    if not socks5_info:
-        print("未找到 SOCKS5_INFO 环境变量")
-        return
+    if not socks5_info: return
 
     proxy_list = socks5_info.split(',')
-    valid_proxy_config = None
-
+    
+    # 尝试寻找一个可用的代理并建立隧道
     for p_str in proxy_list:
         try:
+            # 解析格式 user:pass@ip:port
             auth_part, address_part = p_str.split('@')
-            username, password = auth_part.split(':')
-            ip, port = address_part.split(':')
+            # gost 需要的格式是 socks5://user:pass@ip:port
+            remote_proxy = f"socks5://{p_str}"
             
-            proxy_url = f"socks5://{username}:{password}@{ip}:{port}"
-            # 测试连通性
-            response = requests.get("https://ifconfig.me/ip", proxies={"http": proxy_url, "https": proxy_url}, timeout=10)
+            print(f"尝试连接代理: {address_part} ...")
+
+            # 1. 启动 gost 隧道 (将本地 8080 映射到远程 SOCKS5)
+            # -L=:8080 指在本地 8080 端口启动 HTTP 代理
+            # -F=... 指转发到远程 SOCKS5
+            gost_proc = subprocess.Popen(
+                ["./gost", "-L=:8080", f"-F={remote_proxy}"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
             
-            if response.status_code == 200:
-                print(f"✅ 代理验证通过: {ip}")
-                # 核心改变：拆分配置
-                valid_proxy_config = {
-                    "server": f"socks5://{ip}:{port}", # launch 用这个
-                    "username": username,              # new_context 用这个
-                    "password": password
-                }
-                break
+            # 等待隧道建立
+            time.sleep(2)
+
+            # 2. 验证本地隧道是否通畅
+            try:
+                test_res = requests.get(
+                    "https://ifconfig.me/ip", 
+                    proxies={"http": "http://127.0.0.1:8080", "https": "http://127.0.0.1:8080"}, 
+                    timeout=10
+                )
+                if test_res.status_code == 200:
+                    print(f"✅ 隧道建立成功！出口 IP: {test_res.text.strip()}")
+                    
+                    # 3. Playwright 访问 (连接本地无需密码的 HTTP 代理)
+                    run_playwright("http://127.0.0.1:8080")
+                    gost_proc.terminate() # 完成后关闭
+                    break
+            except:
+                print("❌ 该代理不可用，尝试下一个...")
+                gost_proc.terminate()
         except Exception as e:
-            print(f"❌ 代理跳过 ({p_str.split('@')[-1]}): {e}")
+            print(f"解析出错: {e}")
 
-    if not valid_proxy_config:
-        return
-
+def run_playwright(proxy_url):
     with sync_playwright() as p:
-        # 1. 启动浏览器时只传 server 地址
-        browser = p.chromium.launch(proxy={
-            "server": valid_proxy_config["server"]
-        })
-        
-        # 2. 在创建上下文时传入用户名和密码
-        # Playwright 会在这里通过 CDP 协议拦截并处理 SOCKS5 认证
-        context = browser.new_context(proxy={
-            "server": valid_proxy_config["server"],
-            "username": valid_proxy_config["username"],
-            "password": valid_proxy_config["password"]
-        })
-        
-        page = context.new_page()
+        # Chromium 对本地 HTTP 代理支持极好
+        browser = p.chromium.launch(proxy={"server": proxy_url})
+        page = browser.new_page()
         try:
             page.goto("https://httpbin.org/ip", timeout=30000)
-            print("\nPlaywright 最终出口 IP 验证:")
+            print("Playwright 最终通过隧道确认 IP:")
             print(page.locator("body").inner_text())
-        except Exception as e:
-            print(f"Playwright 访问失败: {e}")
         finally:
             browser.close()
 
