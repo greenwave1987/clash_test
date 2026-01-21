@@ -1,4 +1,4 @@
-name: UI Latency Monitor
+name: Proxy TCP Latency Monitor
 
 on:
   schedule:
@@ -13,26 +13,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      - name: Run UI latency test
+      - name: Run proxy latency test
         env:
           BASE_URL: ${{ secrets.BASE_URL }}
           BASE_PORT: ${{ secrets.BASE_PORT }}
         run: node test.js
 
-      - name: Commit & push results
+      - name: Commit results
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add ui_history.json README.md
-          git commit -m "chore: update UI latency history" || exit 0
+          git commit -m "chore: update proxy tcp latency" || exit 0
           git push
