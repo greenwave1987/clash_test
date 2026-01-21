@@ -33,7 +33,7 @@ jobs:
           BASE_PORT: ${{ secrets.BASE_PORT }}     # 代理端口
           PROXY_TYPE: ${{ secrets.PROXY_TYPE }}   # socks5 或 http
         run: |
-          node proxy_latency.js
+          node test.js
 
       - name: Commit & push results
         run: |
