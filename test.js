@@ -20,7 +20,7 @@ const CHECK_TIMEOUT = 5000; // 超时时间 5 秒
 const HISTORY_FILE = "ui_history.json";
 const README_FILE = "README.md";
 const FAIL_THRESHOLD = 3; // 连续失败阈值
-const CHECK_TIMEOUT = 3000;
+
 const TEST_URL = "http://www.gstatic.com/generate_204";
 let failCount = 0;
 let checkCount = 0;
