@@ -1,65 +1,70 @@
 /**
- * UI 延迟监控脚本（Node 18+ 原生）
- * - 多 URL 测试
- * - 记录延迟
- * - 生成 README 折线图
- * - 无第三方依赖，适配 GitHub Actions
+ * 代理 TCP 延迟监控（Node 18+）
+ * - 测试 host:port TCP 建连延迟
+ * - 多节点
+ * - 历史记录
+ * - README Mermaid 曲线
  */
 
 const fs = require("fs");
+const net = require("net");
 const { performance } = require("perf_hooks");
 
 /* ================= 配置 ================= */
 
-const BASE_URLS = (process.env.BASE_URL || "")
+const PROXY_HOSTS = (process.env.BASE_URL || "")
   .split(",")
   .map(s => s.trim())
   .filter(Boolean);
 
-const BASE_PORT = process.env.BASE_PORT || "";
-const CHECK_TIMEOUT = 5000; // ms
+const PROXY_PORT = Number(process.env.BASE_PORT);
+const TIMEOUT = 5000;
+
 const HISTORY_FILE = "ui_history.json";
 const README_FILE = "README.md";
-const TEST_PATH = "/"; // 只测试 UI 是否响应
 
-/* ================ 工具函数 ================ */
+/* ================= 工具 ================= */
 
-function maskUrl(url) {
-  try {
-    const u = new URL(url.startsWith("http") ? url : `http://${url}`);
-    const parts = u.hostname.split(".");
-    if (parts.length <= 2) return u.hostname;
-    return `${parts[0]}.***.${parts[parts.length - 1]}`;
-  } catch {
-    return url;
-  }
+function maskHost(host) {
+  const parts = host.split(".");
+  if (parts.length <= 2) return host;
+  return `${parts[0]}.***.${parts[parts.length - 1]}`;
 }
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-/* ================ 延迟测试 ================ */
+/* ================= TCP 延迟 ================= */
 
-async function testLatency(host, port) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), CHECK_TIMEOUT);
-  const start = performance.now();
+function testTcpLatency(host, port) {
+  return new Promise(resolve => {
+    const socket = new net.Socket();
+    const start = performance.now();
+    let done = false;
 
-  try {
-    await fetch(`http://${host}:${port}${TEST_PATH}`, {
-      method: "GET",
-      signal: controller.signal,
+    const finish = (value) => {
+      if (done) return;
+      done = true;
+      socket.destroy();
+      resolve(value);
+    };
+
+    socket.setTimeout(TIMEOUT);
+
+    socket.once("connect", () => {
+      const latency = Math.round(performance.now() - start);
+      finish(latency);
     });
-    return Math.round(performance.now() - start);
-  } catch {
-    return -1;
-  } finally {
-    clearTimeout(timer);
-  }
+
+    socket.once("timeout", () => finish(-1));
+    socket.once("error", () => finish(-1));
+
+    socket.connect(port, host);
+  });
 }
 
-/* ================ 历史数据 ================ */
+/* ================= 历史 ================= */
 
 function loadHistory() {
   if (!fs.existsSync(HISTORY_FILE)) return {};
@@ -74,35 +79,36 @@ function saveHistory(history) {
   fs.writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2));
 }
 
-/* ================ README 生成 ================ */
+/* ================= README ================= */
 
 function generateReadme(history) {
   const times = Object.keys(history).slice(-24);
   if (times.length === 0) return;
 
-  let md = `# UI 延迟监控（最近 ${times.length} 次）\n\n`;
-  md += `- 单位：毫秒（ms）\n`;
-  md += `- \`-1\` 表示超时或异常\n\n`;
+  let md = `# 代理 TCP 延迟监控（最近 ${times.length} 次）\n\n`;
+  md += `- 测量：TCP connect 延迟\n`;
+  md += `- 单位：ms\n`;
+  md += `- -1 表示连接失败或超时\n\n`;
 
   const latest = history[times[times.length - 1]];
 
   md += `## 最近一次检测\n\n`;
-  md += `| URL | 延迟 |\n|---|---|\n`;
-  for (const url of BASE_URLS) {
-    const v = latest[url];
-    md += `| ${maskUrl(url)} | ${v >= 0 ? v + " ms" : "❌"} |\n`;
+  md += `| 代理 | 延迟 |\n|---|---|\n`;
+  for (const host of PROXY_HOSTS) {
+    const v = latest[host];
+    md += `| ${maskHost(host)}:${PROXY_PORT} | ${v >= 0 ? v + " ms" : "❌"} |\n`;
   }
 
   md += `\n## 延迟曲线\n\n`;
   md += "```mermaid\n";
   md += "xychart-beta\n";
-  md += '  title "UI Latency (ms)"\n';
+  md += '  title "Proxy TCP Latency (ms)"\n';
   md += `  x-axis [${times.map(t => `"${t.slice(11, 19)}"`).join(", ")}]\n`;
   md += `  y-axis "ms" 0 --> 3000\n`;
 
-  for (const url of BASE_URLS) {
-    md += `  line "${maskUrl(url)}" [`;
-    md += times.map(t => history[t][url] ?? -1).join(", ");
+  for (const host of PROXY_HOSTS) {
+    md += `  line "${maskHost(host)}" [`;
+    md += times.map(t => history[t][host] ?? -1).join(", ");
     md += "]\n";
   }
 
@@ -114,21 +120,21 @@ function generateReadme(history) {
 /* ================= 主流程 ================= */
 
 async function run() {
-  console.log("🚀 UI 延迟监控开始");
+  console.log("🚀 开始代理 TCP 延迟测试");
 
   const history = loadHistory();
   const record = {};
   const now = new Date().toISOString();
 
-  for (const url of BASE_URLS) {
-    console.log(`🔍 测试 ${maskUrl(url)}`);
-    const latency = await testLatency(url, BASE_PORT);
-    record[url] = latency;
+  for (const host of PROXY_HOSTS) {
+    console.log(`🔍 ${host}:${PROXY_PORT}`);
+    const latency = await testTcpLatency(host, PROXY_PORT);
+    record[host] = latency;
 
     if (latency >= 0) {
       console.log(`   ⏱ ${latency} ms`);
     } else {
-      console.warn(`   ❌ 超时 / 失败`);
+      console.warn(`   ❌ 连接失败`);
     }
 
     await sleep(300);
@@ -138,10 +144,10 @@ async function run() {
   saveHistory(history);
   generateReadme(history);
 
-  console.log("✅ 本次检测完成");
+  console.log("✅ 测试完成");
 }
 
 run().catch(err => {
-  console.error("❌ 脚本运行失败", err);
+  console.error("❌ 运行失败", err);
   process.exit(1);
 });
