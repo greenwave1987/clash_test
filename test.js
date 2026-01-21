@@ -1,66 +1,74 @@
 /**
- * 代理 TCP 延迟监控（Node 18+）
- * - 测试 host:port TCP 建连延迟
+ * 代理 TCP + TLS 延迟监控（Node 18+）
+ * - TCP connect + TLS handshake 延迟
  * - 多节点
  * - 历史记录
- * - README Mermaid 曲线
+ * - 连续 N 次失败判断
  */
 
 const fs = require("fs");
 const net = require("net");
+const tls = require("tls");
 const { performance } = require("perf_hooks");
 
 /* ================= 配置 ================= */
 
-const PROXY_HOSTS = (process.env.BASE_URL || "")
+const HOSTS = (process.env.BASE_URL || "")
   .split(",")
   .map(s => s.trim())
   .filter(Boolean);
 
-const PROXY_PORT = Number(process.env.BASE_PORT);
+const PORT = Number(process.env.BASE_PORT);
 const TIMEOUT = 5000;
 
+const FAIL_THRESHOLD = 3; // 连续失败 N 次
 const HISTORY_FILE = "ui_history.json";
 const README_FILE = "README.md";
 
 /* ================= 工具 ================= */
 
 function maskHost(host) {
-  const parts = host.split(".");
-  if (parts.length <= 2) return host;
-  return `${parts[0]}.***.${parts[parts.length - 1]}`;
+  const p = host.split(".");
+  return p.length <= 2 ? host : `${p[0]}.***.${p[p.length - 1]}`;
 }
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-/* ================= TCP 延迟 ================= */
+/* ================= TCP + TLS ================= */
 
-function testTcpLatency(host, port) {
+function testTcpTlsLatency(host, port) {
   return new Promise(resolve => {
-    const socket = new net.Socket();
     const start = performance.now();
     let done = false;
 
-    const finish = (value) => {
+    const finish = v => {
       if (done) return;
       done = true;
-      socket.destroy();
-      resolve(value);
+      resolve(v);
     };
 
-    socket.setTimeout(TIMEOUT);
+    const socket = net.connect({ host, port, timeout: TIMEOUT }, () => {
+      const tlsSocket = tls.connect({
+        socket,
+        servername: host,
+        rejectUnauthorized: false,
+        timeout: TIMEOUT,
+      });
 
-    socket.once("connect", () => {
-      const latency = Math.round(performance.now() - start);
-      finish(latency);
+      tlsSocket.once("secureConnect", () => {
+        const latency = Math.round(performance.now() - start);
+        tlsSocket.destroy();
+        finish(latency);
+      });
+
+      tlsSocket.once("error", () => finish(-1));
+      tlsSocket.once("timeout", () => finish(-1));
     });
 
-    socket.once("timeout", () => finish(-1));
     socket.once("error", () => finish(-1));
-
-    socket.connect(port, host);
+    socket.once("timeout", () => finish(-1));
   });
 }
 
@@ -75,68 +83,64 @@ function loadHistory() {
   }
 }
 
-function saveHistory(history) {
-  fs.writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2));
+function saveHistory(h) {
+  fs.writeFileSync(HISTORY_FILE, JSON.stringify(h, null, 2));
+}
+
+/* ================= 连续失败判断 ================= */
+
+function isContinuouslyFailed(history, host) {
+  const times = Object.keys(history).slice(-FAIL_THRESHOLD);
+  if (times.length < FAIL_THRESHOLD) return false;
+  return times.every(t => history[t][host] === -1);
 }
 
 /* ================= README ================= */
 
 function generateReadme(history) {
   const times = Object.keys(history).slice(-24);
-  if (times.length === 0) return;
+  if (!times.length) return;
 
-  let md = `# 代理 TCP 延迟监控（最近 ${times.length} 次）\n\n`;
-  md += `- 测量：TCP connect 延迟\n`;
-  md += `- 单位：ms\n`;
-  md += `- -1 表示连接失败或超时\n\n`;
+  let md = `# 代理 TCP + TLS 延迟监控\n\n`;
+  md += `- 单位：ms\n- -1 表示连接或 TLS 失败\n\n`;
 
   const latest = history[times[times.length - 1]];
+  md += `## 最近一次检测\n\n| 代理 | 延迟 |\n|---|---|\n`;
 
-  md += `## 最近一次检测\n\n`;
-  md += `| 代理 | 延迟 |\n|---|---|\n`;
-  for (const host of PROXY_HOSTS) {
-    const v = latest[host];
-    md += `| ${maskHost(host)}:${PROXY_PORT} | ${v >= 0 ? v + " ms" : "❌"} |\n`;
+  for (const h of HOSTS) {
+    const v = latest[h];
+    md += `| ${maskHost(h)}:${PORT} | ${v >= 0 ? v + " ms" : "❌"} |\n`;
   }
 
-  md += `\n## 延迟曲线\n\n`;
-  md += "```mermaid\n";
-  md += "xychart-beta\n";
-  md += '  title "Proxy TCP Latency (ms)"\n';
+  md += `\n## 延迟曲线\n\n\`\`\`mermaid\n`;
+  md += `xychart-beta\n`;
+  md += `  title "Proxy TCP + TLS Latency"\n`;
   md += `  x-axis [${times.map(t => `"${t.slice(11, 19)}"`).join(", ")}]\n`;
   md += `  y-axis "ms" 0 --> 3000\n`;
 
-  for (const host of PROXY_HOSTS) {
-    md += `  line "${maskHost(host)}" [`;
-    md += times.map(t => history[t][host] ?? -1).join(", ");
-    md += "]\n";
+  for (const h of HOSTS) {
+    md += `  line "${maskHost(h)}" [${times.map(t => history[t][h] ?? -1).join(", ")}]\n`;
   }
 
-  md += "```\n";
-
+  md += `\`\`\`\n`;
   fs.writeFileSync(README_FILE, md);
 }
 
 /* ================= 主流程 ================= */
 
 async function run() {
-  console.log("🚀 开始代理 TCP 延迟测试");
+  console.log("🚀 TCP + TLS 延迟检测开始");
 
   const history = loadHistory();
   const record = {};
   const now = new Date().toISOString();
 
-  for (const host of PROXY_HOSTS) {
-    console.log(`🔍 ${host}:${PROXY_PORT}`);
-    const latency = await testTcpLatency(host, PROXY_PORT);
+  for (const host of HOSTS) {
+    console.log(`🔍 ${host}:${PORT}`);
+    const latency = await testTcpTlsLatency(host, PORT);
     record[host] = latency;
 
-    if (latency >= 0) {
-      console.log(`   ⏱ ${latency} ms`);
-    } else {
-      console.warn(`   ❌ 连接失败`);
-    }
-
+    console.log(latency >= 0 ? `   ⏱ ${latency} ms` : `   ❌ 失败`);
     await sleep(300);
   }
 
@@ -144,7 +148,14 @@ async function run() {
   saveHistory(history);
   generateReadme(history);
 
-  console.log("✅ 测试完成");
+  for (const host of HOSTS) {
+    if (isContinuouslyFailed(history, host)) {
+      console.error(`🚨 ${host}:${PORT} 连续 ${FAIL_THRESHOLD} 次失败`);
+      process.exitCode = 2; // 可用于后续告警
+    }
+  }
+
+  console.log("✅ 检测完成");
 }
 
 run().catch(err => {
