@@ -112,7 +112,7 @@ function generateReadme(history) {
 
 // 登录函数
 async function login(baseUrl) {
-  const res = await fetch(`${baseUrl}:9090/v1/users/login`, {
+  const res = await fetch(`${baseUrl}:6060/v1/users/login`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
