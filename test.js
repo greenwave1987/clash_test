@@ -44,7 +44,7 @@ async function testLatency(url) {
   const start = performance.now();
 
   try {
-    await fetch(`${url}:8080/#/`, { method: "GET", signal: controller.signal });
+    await fetch(`${url}:8080`, { method: "GET", signal: controller.signal });
     return Math.round(performance.now() - start);
   } catch {
     return -1; // 超时或失败用 -1 表示
