@@ -38,20 +38,7 @@ function maskUrl(url) {
 }
 
 // 工具函数：延迟测试
-async function testLatency(url) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), CHECK_TIMEOUT);
-  const start = performance.now();
 
-  try {
-    await fetch(`${url}:8080`, { method: "GET", signal: controller.signal });
-    return Math.round(performance.now() - start);
-  } catch {
-    return -1; // 超时或失败用 -1 表示
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // 更新历史数据
 function updateHistory(record) {
