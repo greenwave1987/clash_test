@@ -26,6 +26,7 @@ jobs:
       - name: Run UI latency test
         env:
           BASE_URL: ${{ secrets.BASE_URL }}
+          BASE_PORT: ${{ secrets.BASE_PORT }}
           USERNAME: ${{ secrets.USERNAME }}
           PASSWORD: ${{ secrets.PASSWORD }}
         run: |
