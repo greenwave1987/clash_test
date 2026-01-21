@@ -9,18 +9,19 @@
 
 const fs = require("fs");
 const { performance } = require("perf_hooks");
-
+const  { fetch, ProxyAgent }  = require("undici");
 // 环境变量
 const BASE_URLS = (process.env.BASE_URL || "")
   .split(",")
   .map(s => s.trim())
   .filter(Boolean);
-
+const BASE_PORT = (process.env.BASE_PORT || "");
 const CHECK_TIMEOUT = 5000; // 超时时间 5 秒
 const HISTORY_FILE = "ui_history.json";
 const README_FILE = "README.md";
 const FAIL_THRESHOLD = 3; // 连续失败阈值
-
+const CHECK_TIMEOUT = 3000;
+const TEST_URL = "http://www.gstatic.com/generate_204";
 let failCount = 0;
 let checkCount = 0;
 const MAX_CHECK_COUNT = 3;
@@ -38,7 +39,29 @@ function maskUrl(url) {
 }
 
 // 工具函数：延迟测试
+/**
+ * 测试通过 HTTP 代理的延迟
+ * @param {string} proxyUrl 例如 http://127.0.0.1:7890
+ */
+async function testLatency(proxyUrl) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CHECK_TIMEOUT);
+  const start = performance.now();
 
+  const agent = new ProxyAgent(proxyUrl);
+
+  try {
+    await fetch(TEST_URL, {
+      dispatcher: agent,
+      signal: controller.signal,
+    });
+    return Math.round(performance.now() - start);
+  } catch (e) {
+    return -1;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // 更新历史数据
 function updateHistory(record) {
@@ -139,7 +162,7 @@ async function run() {
 
   for (const url of BASE_URLS) {
     console.log(`🔍 测试 ${maskUrl(url)}`);
-    const latency = await testLatency(url);
+    const latency = await testLatency(`http://${url}:${BASE_PORT}`);
     record[url] = latency;
 
     if (latency >= 0) {
