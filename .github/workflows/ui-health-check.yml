@@ -1,8 +1,8 @@
-name: Proxy TCP TLS Latency Monitor
+name: Proxy Latency Monitor
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "*/30 * * * *"  # 每 30 分钟运行一次
   workflow_dispatch:
 
 permissions:
@@ -13,22 +13,45 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 18
 
+      - name: Install dependencies
+        run: |
+          npm install undici socks-proxy-agent http-proxy-agent
+
       - name: Run proxy latency test
         env:
-          BASE_URL: ${{ secrets.BASE_URL }}
-          BASE_PORT: ${{ secrets.BASE_PORT }}
-        run: node test.js
+          BASE_URL: ${{ secrets.BASE_URL }}       # 多代理 host, 用逗号隔开
+          BASE_PORT: ${{ secrets.BASE_PORT }}     # 代理端口
+          PROXY_TYPE: ${{ secrets.PROXY_TYPE }}   # socks5 或 http
+        run: |
+          node proxy_latency.js
 
-      - name: Commit results
+      - name: Commit & push results
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
+
+          # 保存未提交更改
+          git stash -u || echo "No changes to stash"
+
+          # 拉取远程并 rebase
+          git pull --rebase origin main
+
+          # 恢复之前存储的更改
+          git stash pop || echo "No stashed changes"
+
+          # 提交 JSON 和 README
           git add ui_history.json README.md
-          git commit -m "chore: update proxy tcp tls latency" || exit 0
-          git push
+          git commit -m "chore: update proxy latency history" || echo "No changes to commit"
+
+          # 推送到远程
+          git push origin main
