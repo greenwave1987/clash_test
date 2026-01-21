@@ -2,11 +2,11 @@ name: UI Latency Monitor
 
 on:
   schedule:
-    - cron: "*/30 * * * *"  # 每 30 分钟运行一次
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 permissions:
-  contents: write  # 确保有写权限
+  contents: write
 
 jobs:
   monitor:
@@ -16,42 +16,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 确保完整的历史记录，避免 rebase 冲突
-          
+          fetch-depth: 0
 
-  
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
-          
-  
+
       - name: Run UI latency test
         env:
           BASE_URL: ${{ secrets.BASE_URL }}
           BASE_PORT: ${{ secrets.BASE_PORT }}
-          USERNAME: ${{ secrets.USERNAME }}
-          PASSWORD: ${{ secrets.PASSWORD }}
-        run: |
-          node test.js
+        run: node test.js
 
       - name: Commit & push results
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-
-          # 确保工作区干净，先存储未提交的更改
-          git stash -u || echo "No changes to stash"
-
-          # 拉取并进行 rebase
-          git pull --rebase origin main
-
-          # 恢复之前存储的更改
-          git stash pop || echo "No stashed changes"
-
-          # 添加和提交文件
           git add ui_history.json README.md
-          git commit -m "chore: update UI latency history" || echo "No changes to commit"
-
-          # 推送到远程仓库
-          git push origin main
+          git commit -m "chore: update UI latency history" || exit 0
+          git push
