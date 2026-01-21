@@ -1,25 +1,26 @@
-# UI 延迟监控（最近 24 次）
+# UI 延迟监控（最近 2 次）
 
-> -1 表示超时或异常
+- 单位：毫秒（ms）
+- `-1` 表示超时或异常
 
 ## 最近一次检测
 
-| URL | 延迟 (ms) |
+| URL | 延迟 |
 |---|---|
-| http://jz.***.uy | ❌ |
-| http://jz.***.io | ❌ |
-| http://greenwave1987.***.in | ❌ |
-| http://jz.***.xyz | ❌ |
+| jz.***.uy | ❌ |
+| jz.***.io | ❌ |
+| greenwave1987.***.in | ❌ |
+| jz.***.xyz | ❌ |
 
 ## 延迟曲线
 
 ```mermaid
 xychart-beta
   title "UI Latency (ms)"
-  x-axis ["05:30:45"]
+  x-axis ["05:30:45", "06:38:01"]
   y-axis "ms" 0 --> 3000
-  line "http://jz.***.uy" [-1]
-  line "http://jz.***.io" [-1]
-  line "http://greenwave1987.***.in" [-1]
-  line "http://jz.***.xyz" [-1]
+  line "jz.***.uy" [-1, -1]
+  line "jz.***.io" [-1, -1]
+  line "greenwave1987.***.in" [-1, -1]
+  line "jz.***.xyz" [-1, -1]
 ```
